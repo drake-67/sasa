@@ -30,7 +30,7 @@ namespace rbx
 	struct c_addressable
 	{
 		std::uint64_t address = 0;
-		
+
 		c_addressable() = default;
 		c_addressable(std::uint64_t address) : address(address) {}
 	};
@@ -39,21 +39,21 @@ namespace rbx
 	{
 		using c_addressable::c_addressable;
 
-		std::string get_name();
-		std::string get_class_name();
+		std::string get_name() const;
+		std::string get_class_name() const;
 	};
 
 	struct c_node
 	{
-		std::uint64_t find_first_child(std::string_view name);
-		std::uint64_t find_first_child_by_class(std::string_view name);
-			
+		std::uint64_t find_first_child(std::string_view name) const;
+		std::uint64_t find_first_child_by_class(std::string_view name) const;
+
 		template <typename type>
-		std::vector<type> get_children();
+		std::vector<type> get_children() const;
 
-		std::vector<std::uint64_t> get_children();
+		std::vector<std::uint64_t> get_children() const;
 
-		std::uint64_t get_parent();
+		std::uint64_t get_parent() const;
 		void set_parent(const std::uint64_t& parent);
 	};
 
@@ -61,16 +61,16 @@ namespace rbx
 	{
 		using c_nameable::c_nameable;
 
-		c_primitive get_primitive();
+		c_primitive get_primitive() const;
 	};
 
 	struct c_player final : public c_instance
 	{
 		using c_instance::c_instance;
 
-		c_model_instance get_model_instance();
-		std::uint64_t get_team();
-		std::string get_display_name();
+		c_model_instance get_model_instance() const;
+		std::uint64_t get_team() const;
+		std::string get_display_name() const;
 	};
 
 	struct c_model_instance final : public c_addressable, public c_node
@@ -82,20 +82,20 @@ namespace rbx
 	{
 		using c_nameable::c_nameable;
 
-		float get_health();
-		float get_max_health();
+		float get_health() const;
+		float get_max_health() const;
 
-		float get_jump_power();
-		void set_jump_power(const float& jump);
+		float get_jump_power() const;
+		void set_jump_power(const float& jump) const;
 
-		float get_walk_speed();
-		void set_walk_speed(const float& speed);
+		float get_walk_speed() const;
+		void set_walk_speed(const float& speed) const;
 
-		float get_hip_height();
-		void set_hip_height(const float& height);
+		float get_hip_height() const;
+		void set_hip_height(const float& height) const;
 
-		std::uint8_t get_rig_type();
-		std::uint16_t get_state();
+		std::uint8_t get_rig_type() const;
+		std::uint16_t get_state() const;
 	};
 
 	struct c_humanoid_root_part final : public c_nameable
@@ -109,23 +109,23 @@ namespace rbx
 	{
 		using c_nameable::c_nameable;
 
-		c_primitive get_primitive();
+		c_primitive get_primitive() const;
 	};
 
 	struct c_primitive final : public c_addressable
 	{
 		using c_addressable::c_addressable;
 
-		math::vector3 get_position();
-		void set_position(const math::vector3& position);
+		math::vector3 get_position() const;
+		void set_position(const math::vector3& position) const;
 
-		math::matrix3 get_rotation();
-		void set_rotation(const math::matrix3& rotation);
+		math::matrix3 get_rotation() const;
+		void set_rotation(const math::matrix3& rotation) const;
 
-		math::vector3 get_size();
-		void set_size(const math::vector3& size);
+		math::vector3 get_size() const;
+		void set_size(const math::vector3& size) const;
 
-		math::cframe get_cframe();
+		math::cframe get_cframe() const;
 	};
 
 	struct c_datamodel final : public c_instance
@@ -139,13 +139,13 @@ namespace rbx
 			return std::make_unique<c_datamodel>(real_datamodel);
 		}
 
-		c_workspace get_workspace();
+		c_workspace get_workspace() const;
 
-		std::uint64_t get_game_id();
-		std::uint64_t get_place_id();
-		std::uint64_t get_creator_id();
+		std::uint64_t get_game_id() const;
+		std::uint64_t get_place_id() const;
+		std::uint64_t get_creator_id() const;
 
-		std::string get_server_ip();
+		std::string get_server_ip() const;
 	};
 
 	struct c_workspace final : public c_instance
@@ -163,8 +163,8 @@ namespace rbx
 			return std::make_unique<c_visualengine>(visualengine);
 		}
 
-		math::vector2 get_dimensions();
-		math::matrix4 get_viewmatrix();
+		math::vector2 get_dimensions() const;
+		math::matrix4 get_viewmatrix() const;
 
 		/* this function signature is "goyslop" */
 		bool world_to_screen(
@@ -172,24 +172,24 @@ namespace rbx
 			const math::vector2& dims,
 			const math::vector3& world,
 			math::vector2& out
-		);
+		) const;
 	};
 
 	struct c_camera final : public c_addressable
 	{
 		using c_addressable::c_addressable;
 
-		math::matrix3 get_rotation();
-		math::vector3 get_position();
-		void set_rotation(const math::matrix3& value);
-		float get_field_of_view();
+		math::matrix3 get_rotation() const;
+		math::vector3 get_position() const;
+		void set_rotation(const math::matrix3& value) const;
+		float get_field_of_view() const;
 	};
 }
 
 template <typename type>
-std::vector<type> rbx::c_node::get_children()
+std::vector<type> rbx::c_node::get_children() const
 {
-	auto* self{ static_cast<rbx::c_instance*>(this) };
+	auto* self{ static_cast<const rbx::c_instance*>(this) };
 
 	static thread_local std::vector<type> container{};
 	container.clear();
