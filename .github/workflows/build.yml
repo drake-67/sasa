@@ -1,0 +1,44 @@
+name: Build SASA
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Release x64
+        run: msbuild Lumen.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
+
+      - name: Locate exe
+        id: locate
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Recurse -Filter Lumen.exe | Select-Object -First 1
+          if (-not $exe) { Get-ChildItem -Recurse build | Out-String | Write-Host; throw "Lumen.exe not found" }
+          Write-Host "found: $($exe.FullName)"
+          "path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Rename to SASA
+        shell: pwsh
+        run: |
+          $dir = Split-Path "${{ steps.locate.outputs.path }}"
+          Copy-Item "${{ steps.locate.outputs.path }}" (Join-Path $dir "SASA.exe")
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SASA-Release-x64
+          path: |
+            build/SASA.exe
+            build/Lumen.exe
