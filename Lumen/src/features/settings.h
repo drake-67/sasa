@@ -119,6 +119,9 @@ namespace settings
 		inline bool deadcheck = true;
 		inline bool wallcheck = false;
 
+		inline bool distance_culling = false;
+		inline float max_render_distance = 500.f;
+
 		inline bool debug_wallcheck = false;
 		inline float debug_wallcheck_max_length = 75.f;
 	}
@@ -129,7 +132,7 @@ namespace settings
 		inline float walkspeed = 16.f;
 		inline float jumppower = 50.f;
 		inline float hipheight = 0.f;
-		inline bool apply_continuous = false; // re-apply every tick
+		inline bool apply_continuous = true;
 
 		inline bool fly_enabled = false;
 		inline int fly_key = VK_SPACE;

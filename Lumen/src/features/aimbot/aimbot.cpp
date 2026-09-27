@@ -188,63 +188,17 @@ static void mouse_aim(const math::vector2& target, float smooth_x, float smooth_
 	if (distance < settings::aimbot::deadzone)
 		return;
 
-	// curve shaping: larger distance -> larger step fraction
 	float norm = std::clamp(distance / max(settings::aimbot::fov, 1.f), 0.f, 1.f);
 	float k = apply_curve(norm, settings::aimbot::smooth_curve, settings::aimbot::humanize);
 
 	const float divisor_x = max(smooth_x * (2.f - k), 1.0f);
 	const float divisor_y = max(smooth_y * (2.f - k), 1.0f);
 
-	static thread_local float remainder_x = 0.0f;
-	static thread_local float remainder_y = 0.0f;
-
-	remainder_x += delta_x / divisor_x;
-	remainder_y += delta_y / divisor_y;
-
-	LARGE_INTEGER frequency, counter;
-	QueryPerformanceFrequency(&frequency);
-	QueryPerformanceCounter(&counter);
-	static thread_local double last_time = static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
-	const double current_time = static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
-	last_time = current_time;
-
-	static thread_local int last_dir_x = 0;
-	static thread_local int last_dir_y = 0;
-	static thread_local double last_change_x = 0.0;
-	static thread_local double last_change_y = 0.0;
-
-	const int intended_dir_x = (remainder_x > 0.1f) ? 1 : ((remainder_x < -0.1f) ? -1 : 0);
-	const int intended_dir_y = (remainder_y > 0.1f) ? 1 : ((remainder_y < -0.1f) ? -1 : 0);
-
-	const double min_direction_change_time = 0.03;
-
-	if (intended_dir_x != 0 && intended_dir_x == -last_dir_x)
-	{
-		if (current_time - last_change_x < min_direction_change_time)
-			remainder_x *= 0.3f;
-		else { last_dir_x = intended_dir_x; last_change_x = current_time; }
-	}
-	else if (intended_dir_x != 0 && intended_dir_x != last_dir_x)
-	{ last_dir_x = intended_dir_x; last_change_x = current_time; }
-	else if (intended_dir_x == 0)
-	{ last_dir_x = 0; }
-
-	if (intended_dir_y != 0 && intended_dir_y == -last_dir_y)
-	{
-		if (current_time - last_change_y < min_direction_change_time)
-			remainder_y *= 0.3f;
-		else { last_dir_y = intended_dir_y; last_change_y = current_time; }
-	}
-	else if (intended_dir_y != 0 && intended_dir_y != last_dir_y)
-	{ last_dir_y = intended_dir_y; last_change_y = current_time; }
-	else if (intended_dir_y == 0)
-	{ last_dir_y = 0; }
+	float remainder_x = delta_x / divisor_x;
+	float remainder_y = delta_y / divisor_y;
 
 	const LONG move_x = static_cast<LONG>(std::round(remainder_x));
 	const LONG move_y = static_cast<LONG>(std::round(remainder_y));
-
-	remainder_x -= static_cast<float>(move_x);
-	remainder_y -= static_cast<float>(move_y);
 
 	if (move_x == 0 && move_y == 0)
 		return;
@@ -436,8 +390,9 @@ void aimbot::camera_aimbot()
 	if (settings::aimbot::camera::smoothing_enabled)
 	{
 		math::matrix3 camera_rot = camera.get_rotation();
-		float t = max(settings::aimbot::camera::smoothing_value, 0.1f) * 50.f;
-		float k = 1.0f / t;
+		float t = max(settings::aimbot::camera::smoothing_value, 0.1f);
+		float k = 1.0f / (t * 10.0f);
+		k = std::clamp(k, 0.01f, 1.0f);
 		math::matrix3 result{};
 		for (std::int32_t i = 0; i < 3; i++)
 		{

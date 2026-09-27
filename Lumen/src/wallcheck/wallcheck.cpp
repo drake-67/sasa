@@ -2,6 +2,8 @@
 
 #include <iostream>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 #include <game/game.h>
 
@@ -20,7 +22,6 @@ void c_wallcheck::find_valid_parts(std::vector<rbx::c_instance> instances, std::
 			className == "Cylinder" ||
 			className == "UnionOperation" ||
 			className == "TrussPart"
-			//className == "Terrain" fucky, sometimes games have a terrain covering the whole world which makes the ray never hit
 			) {
 			rbx::c_primitive prim = child.get_primitive();
 			valid.push_back(prim);
@@ -37,7 +38,7 @@ void c_wallcheck::find_valid_parts(std::vector<rbx::c_instance> instances, std::
 			rbx::obb obb(center, size, cf);
 			obstacles.push_back(obb);
 		}
-		if (className == "Folder" || (className == "Model") /*&& depth >= 0*/) {
+		if (className == "Folder" || (className == "Model")) {
 			find_valid_parts(child.get_children<rbx::c_instance>(), valid, depth + 1);
 		}
 	}
@@ -52,6 +53,8 @@ bool c_wallcheck::cache_workspace() {
 	std::vector<rbx::c_instance> children = workspace->get_children<rbx::c_instance>();
 
 	std::vector<rbx::c_primitive> valid;
+	obstacles.clear();
+	parts.clear();
 	find_valid_parts(children, valid, -1);
 
 	if (valid.empty()) {
@@ -66,8 +69,6 @@ bool c_wallcheck::is_visible(const math::vector3& origin, const math::vector3& t
 	math::vector3 dir = (target - origin).normalized();
 	float distance = (target - origin).length();
 
-	const float max_obb_size = 5.f;
-
 	for (const rbx::obb& box : get_obstacles()) {
 		float max_obb_extent = max(max(box.half_size.x, box.half_size.y), box.half_size.z);
 
@@ -79,17 +80,23 @@ bool c_wallcheck::is_visible(const math::vector3& origin, const math::vector3& t
 		}
 	}
 
-	return true; // no obstacles
+	return true;
 }
 
-////////// don't allow our internal vectors to be mutated //////////
-																  //
-const std::vector<rbx::c_primitive>& c_wallcheck::get_parts() {   //
-	return parts;                                                 //
-}                                                                 //
-																  //
-const std::vector<rbx::obb>& c_wallcheck::get_obstacles() {       //
-	return obstacles;                                             //
-}                                                                 //
-																  //
-////////////////////////////////////////////////////////////////////
+void c_wallcheck::cache_loop()
+{
+	using namespace std::chrono_literals;
+	while (true) {
+		std::this_thread::sleep_for(5s);
+		if (!game::datamodel || !game::datamodel->address) continue;
+		cache_workspace();
+	}
+}
+
+const std::vector<rbx::c_primitive>& c_wallcheck::get_parts() {
+	return parts;
+}
+
+const std::vector<rbx::obb>& c_wallcheck::get_obstacles() {
+	return obstacles;
+}

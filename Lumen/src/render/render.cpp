@@ -448,7 +448,7 @@ void render_t::render_menu()
     size_t ent_count = 0;
     { std::lock_guard<std::mutex> l(cache::mtx); ent_count = cache::players.size(); }
 
-    ImGui::SetNextWindowSize({ 700, 560 }, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({ 740, 600 }, ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("SASA", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::End();
@@ -520,7 +520,15 @@ void render_t::render_menu()
     {
         menu_detail::section("Aimbot");
         ImGui::Checkbox("Enable aimbot", &settings::aimbot::enabled);
-        ImGui::Checkbox("Hold-to-aim (else always-on)", &settings::aimbot::require_key);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Master toggle for the mouse aimbot.\nRequires a target to be within FOV.");
+        ImGui::Checkbox("Hold-to-aim", &settings::aimbot::require_key);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("If on: hold the aim key to aim.\nIf off: always aims when a target is found.");
         key_bind("Aim key", &settings::aimbot::aim_key);
 
         static constexpr const char* const parts = "Closest\0Head\0Torso\0HumanoidRootPart\0";
@@ -558,6 +566,10 @@ void render_t::render_menu()
 
         menu_detail::section("Camera aimbot");
         ImGui::Checkbox("Enable camera aimbot", &settings::aimbot::camera::enabled);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Directly manipulates the game camera to track targets.\nWorks independently of the mouse aimbot.");
         ImGui::Checkbox("Camera smoothing", &settings::aimbot::camera::smoothing_enabled);
         if (settings::aimbot::camera::smoothing_enabled)
             ImGui::SliderFloat("Camera smooth", &settings::aimbot::camera::smoothing_value, 0.1f, 50.f, "%.1f");
@@ -666,6 +678,10 @@ void render_t::render_menu()
     {
         menu_detail::section("Legit / Movement");
         ImGui::Checkbox("Enable", &settings::legit::enabled);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Applies walkspeed, jump power, and hip height changes.\nEnable 'Apply continuous' to re-apply every frame (needed for most games).");
         ImGui::SliderFloat("Walkspeed", &settings::legit::walkspeed, 8.f, 200.f, "%.0f");
         ImGui::SliderFloat("Jump power", &settings::legit::jumppower, 10.f, 300.f, "%.0f");
         ImGui::SliderFloat("Hip height", &settings::legit::hipheight, 0.f, 20.f, "%.1f");
@@ -673,7 +689,11 @@ void render_t::render_menu()
         if (ImGui::Button("Apply once", ImVec2(-FLT_MIN, 0))) legit::apply_once();
 
         menu_detail::section("Fly");
-        ImGui::Checkbox("Fly (hold key + WASD)", &settings::legit::fly_enabled);
+        ImGui::Checkbox("Fly", &settings::legit::fly_enabled);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Hold the fly key + WASD to move. Space = up, Ctrl = down.\nDefault fly key is SPACE (same as up). Rebind if needed.");
         key_bind("Fly key", &settings::legit::fly_key);
         ImGui::SliderFloat("Fly speed", &settings::legit::fly_speed, 10.f, 300.f, "%.0f");
         ImGui::TextWrapped("Fly: hold fly key, steer with WASD + Space/Ctrl.");
@@ -695,6 +715,62 @@ void render_t::render_menu()
         if (ImGui::Button("Load", ImVec2(120, 0))) config::load(settings::config::name);
         if (!settings::config::last_status.empty())
             ImGui::TextWrapped("%s", settings::config::last_status.c_str());
+
+        menu_detail::section("Reset");
+        if (ImGui::Button("Reset all to defaults", ImVec2(-FLT_MIN, 0))) {
+            settings::aimbot::enabled = false;
+            settings::aimbot::fov = 120.f;
+            settings::aimbot::smooth_x = 10.f;
+            settings::aimbot::smooth_y = 10.f;
+            settings::aimbot::headshot_chance = 100.f;
+            settings::aimbot::prediction = false;
+            settings::aimbot::teamcheck = false;
+            settings::aimbot::deadcheck = true;
+            settings::aimbot::wallcheck = false;
+            settings::aimbot::sticky_target = true;
+            settings::aimbot::target_part = 0;
+            settings::aimbot::priority = 0;
+            settings::aimbot::camera::enabled = false;
+            settings::aimbot::camera::smoothing_enabled = true;
+            settings::aimbot::camera::smoothing_value = 8.f;
+
+            settings::triggerbot::enabled = false;
+            settings::triggerbot::require_key = true;
+            settings::triggerbot::delay_ms = 80.f;
+            settings::triggerbot::fov_radius = 12.f;
+            settings::triggerbot::teamcheck = true;
+            settings::triggerbot::deadcheck = true;
+            settings::triggerbot::wallcheck = true;
+
+            settings::visuals::box = true;
+            settings::visuals::box_style = 1;
+            settings::visuals::username = true;
+            settings::visuals::healthbar = true;
+            settings::visuals::skeleton = false;
+            settings::visuals::snapline = false;
+            settings::visuals::head_dot = false;
+            settings::visuals::crosshair = false;
+            settings::visuals::hitmarker = false;
+            settings::visuals::radar = false;
+            settings::visuals::offscreen_arrows = false;
+            settings::visuals::streamproof = true;
+            settings::visuals::teamcheck = false;
+            settings::visuals::deadcheck = true;
+            settings::visuals::wallcheck = false;
+            settings::visuals::distance_culling = false;
+            settings::visuals::max_render_distance = 500.f;
+
+            settings::legit::enabled = false;
+            settings::legit::walkspeed = 16.f;
+            settings::legit::jumppower = 50.f;
+            settings::legit::hipheight = 0.f;
+            settings::legit::apply_continuous = true;
+            settings::legit::fly_enabled = false;
+            settings::legit::fly_key = VK_SPACE;
+            settings::legit::fly_speed = 50.f;
+
+            settings::config::last_status = "reset to defaults";
+        }
 
         menu_detail::section("Saved on disk");
         try

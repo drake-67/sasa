@@ -270,6 +270,20 @@ void esp::run()
 		if (entity.instance.address == cache::local_player.instance.address)
 			continue;
 
+		// distance culling
+		if (settings::visuals::distance_culling) {
+			auto local_it = cache::local_player.parts.find("HumanoidRootPart");
+			if (local_it != cache::local_player.parts.end() && local_it->second.address) {
+				auto target_it = entity.parts.find("HumanoidRootPart");
+				if (target_it != entity.parts.end() && target_it->second.address) {
+					float dist = local_it->second.get_primitive().get_position().distance(
+						target_it->second.get_primitive().get_position());
+					if (dist > settings::visuals::max_render_distance)
+						continue;
+				}
+			}
+		}
+
 		bool valid = false;
 		float left = FLT_MAX, top = FLT_MAX;
 		float right = -FLT_MAX, bottom = -FLT_MAX;
@@ -317,19 +331,24 @@ void esp::run()
 		if (!onscreen && settings::visuals::offscreen_arrows) {
 			auto it = entity.parts.find("HumanoidRootPart");
 			if (it != entity.parts.end() && it->second.address) {
-				// project: if w2s fails it's behind/offscreen; use direction from center
 				math::vector3 w = it->second.get_primitive().get_position();
 				math::vector2 s{};
 				bool vis = game::visualengine->world_to_screen(view, dims, w, s);
 				float cx = (float)GetSystemMetrics(SM_CXSCREEN) * 0.5f;
 				float cy = (float)GetSystemMetrics(SM_CYSCREEN) * 0.5f;
-				float dx = s.x - cx, dy = s.y - cy;
-				if (!vis) { dx = -dx; dy = -dy; }
+				float dx, dy;
+				if (vis) {
+					dx = s.x - cx;
+					dy = s.y - cy;
+				} else {
+					math::vector3 dir = (w - memory->read<math::vector3>(game::camera + Offsets::Camera::Position)).normalized();
+					dx = dir.x;
+					dy = dir.y;
+				}
 				float len = std::sqrt(dx*dx + dy*dy);
 				if (len < 1.f) { dx = 0; dy = -1; len = 1; }
 				dx /= len; dy /= len;
 				float dist = settings::visuals::arrow_distance + 60.f;
-				// keep arrows around center circle
 				ImVec2 tip{ cx + dx * dist, cy + dy * dist };
 				float sz = settings::visuals::arrow_size;
 				float ang = std::atan2(dy, dx);

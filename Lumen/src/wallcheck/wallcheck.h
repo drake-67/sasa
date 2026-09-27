@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include <vector>
+#include <thread>
 
 #include "obb.h"
 #include <sdk/sdk.h>
@@ -14,6 +15,7 @@ public:
 
 	void find_valid_parts(std::vector<rbx::c_instance> instances, std::vector<rbx::c_primitive>& validParts, std::int32_t depth);
 	bool is_visible(const math::vector3& origin, const math::vector3& target);
+	void cache_loop(); // periodic refresh thread
 
 	const std::vector<rbx::c_primitive>& get_parts();
 	const std::vector<rbx::obb>& get_obstacles();
