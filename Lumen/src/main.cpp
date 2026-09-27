@@ -93,7 +93,7 @@ std::int32_t main()
 	std::thread(rescan::rescan_process).detach();
 
 	std::thread(cache::run).detach();
-	std::thread(wallcheck->cache_loop).detach();
+	std::thread(&c_wallcheck::cache_loop, wallcheck.get()).detach();
 	std::thread(aimbot::run).detach();
 	std::thread(triggerbot::run).detach();
 	std::thread(legit::run).detach();
