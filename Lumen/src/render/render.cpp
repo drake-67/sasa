@@ -3,9 +3,12 @@
 
 #include <dwmapi.h>
 #include <cstdio>
+#include <cstdlib>
+#include <cfloat>
 #include <chrono>
 #include <thread>
 #include <mutex>
+#include <filesystem>
 
 #include "assets/verdana.h"
 
@@ -15,6 +18,8 @@
 #include <features/settings.h>
 #include <features/config/config.h>
 #include <features/legit/legit.h>
+#include <features/aimbot/aimbot.h>
+#include <sdk/offsets/auto_update.h>
 #include "keybind.h"
 #include "sdk/math/math.h"
 #include <game/game.h>
@@ -274,6 +279,25 @@ void render_t::destroy_imgui()
     ImGui::DestroyContext();
 }
 
+void render_t::sync_interaction()
+{
+    if (!detail->window)
+        return;
+
+    if (running)
+    {
+        // menu open: capture mouse (no TRANSPARENT) so widgets are clickable
+        SetWindowLong(detail->window, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED);
+    }
+    else
+    {
+        // menu closed: click-through overlay, ESP still draws on top
+        SetWindowLong(detail->window, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_LAYERED);
+    }
+    SetWindowPos(detail->window, nullptr, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+}
+
 void render_t::start_render()
 {
     MSG msg;
@@ -309,22 +333,11 @@ void render_t::start_render()
     st.Colors[ImGuiCol_HeaderHovered] = acc;
     st.Colors[ImGuiCol_HeaderActive] = acc;
 
-    if ((settings::menu_key != 0) && (GetAsyncKeyState(settings::menu_key) & 1))
+    static bool menu_prev_down = false;
+    if (hotkey_pressed(settings::menu_key, menu_prev_down))
     {
         running = !running;
-
-        if (running)
-        {
-            // menu open: capture mouse (no TRANSPARENT) so widgets are clickable
-            SetWindowLong(detail->window, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED);
-        }
-        else
-        {
-            // menu closed: click-through overlay
-            SetWindowLong(detail->window, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_LAYERED);
-        }
-        SetWindowPos(detail->window, nullptr, 0, 0, 0, 0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        sync_interaction();
     }
 
     // fps limiter
@@ -381,27 +394,131 @@ void render_t::end_render()
     detail->swap_chain->Present(1, 0); // vsync: caps overlay to refresh rate, saves CPU/GPU
 }
 
+namespace menu_detail
+{
+	inline ImVec4 accent()
+	{
+		return ImVec4(settings::menu_accent[0], settings::menu_accent[1], settings::menu_accent[2], 1.f);
+	}
+
+	inline void section(const char* label)
+	{
+		ImGui::Spacing();
+		ImGui::TextColored(accent(), "%s", label);
+		ImGui::Separator();
+	}
+}
+
 void render_t::render_menu()
 {
     static std::int32_t tab = 0;
 
-    ImGui::SetNextWindowSize({ 520, 600 }, ImGuiCond_Once);
-    ImGui::Begin("SASA");
+    // ---- live feature state (so "isn't working" is diagnosable at a glance) ----
+    char aim_state[32]{}, trig_state[32]{}, aim_key_name[48]{}, trig_key_name[48]{};
+    bool aim_good = false, trig_good = false;
+    keybind_detail::key_name(settings::aimbot::aim_key, aim_key_name, sizeof(aim_key_name));
+    keybind_detail::key_name(settings::triggerbot::key, trig_key_name, sizeof(trig_key_name));
+    {
+        if (!settings::aimbot::enabled)
+            std::snprintf(aim_state, sizeof(aim_state), "OFF");
+        else if (settings::aimbot::locked_target != 0)
+        {
+            std::snprintf(aim_state, sizeof(aim_state), "LOCKED");
+            aim_good = true;
+        }
+        else if (settings::aimbot::require_key && !(GetAsyncKeyState(settings::aimbot::aim_key) & 0x8000))
+            std::snprintf(aim_state, sizeof(aim_state), "HOLD %s", aim_key_name);
+        else
+        {
+            std::snprintf(aim_state, sizeof(aim_state), "SCANNING");
+            aim_good = true;
+        }
 
-    const char* tabs[] = { "Aim", "Visual", "Trigger", "Legit", "Config" };
-    for (int i = 0; i < 5; i++) {
-        if (i > 0) ImGui::SameLine();
-        if (ImGui::Button(tabs[i], ImVec2(90, 0)))
-            tab = i;
+        if (!settings::triggerbot::enabled)
+            std::snprintf(trig_state, sizeof(trig_state), "OFF");
+        else if (settings::triggerbot::require_key && !(GetAsyncKeyState(settings::triggerbot::key) & 0x8000))
+            std::snprintf(trig_state, sizeof(trig_state), "HOLD %s", trig_key_name);
+        else
+        {
+            std::snprintf(trig_state, sizeof(trig_state), "READY");
+            trig_good = true;
+        }
     }
 
+    size_t ent_count = 0;
+    { std::lock_guard<std::mutex> l(cache::mtx); ent_count = cache::players.size(); }
+
+    ImGui::SetNextWindowSize({ 700, 560 }, ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("SASA", nullptr, ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::End();
+        return;
+    }
+
+    // ---- header: title + live stats + hide ----
+    {
+        ImGui::TextColored(menu_detail::accent(), "SASA");
+        ImGui::SameLine();
+        char menu_key_name[48]{};
+        keybind_detail::key_name(settings::menu_key, menu_key_name, sizeof(menu_key_name));
+        ImGui::TextDisabled("external  |  %s hides menu", menu_key_name);
+
+        char right[96]{};
+        std::snprintf(right, sizeof(right), "%d fps  |  %llu players", detail_fps, (unsigned long long)ent_count);
+        const float rx = ImGui::GetWindowWidth() - ImGui::CalcTextSize(right).x - 76.f;
+        if (rx > 300.f)
+            ImGui::SameLine(rx);
+        else
+            ImGui::SameLine();
+        ImGui::TextDisabled("%s", right);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Hide"))
+        {
+            running = false;
+            sync_interaction();
+        }
+    }
     ImGui::Separator();
 
+    // ---- sidebar ----
+    const char* tabs[] = { "Aim", "Visual", "Trigger", "Legit", "Config" };
+    ImGui::BeginChild("##sasa_side", ImVec2(148, -26), true);
+    {
+        const ImVec4 acc = menu_detail::accent();
+        for (int i = 0; i < 5; i++)
+        {
+            if (i == tab)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Button, acc);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, acc);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, acc);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.f, 0.f, 0.f, 1.f));
+            }
+            if (ImGui::Button(tabs[i], ImVec2(-FLT_MIN, 38)))
+                tab = i;
+            if (i == tab)
+                ImGui::PopStyleColor(4);
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("aim");
+        ImGui::SameLine(62.f);
+        ImGui::TextColored(aim_good ? ImVec4(0.35f, 1.f, 0.45f, 1.f) : ImVec4(0.6f, 0.6f, 0.6f, 1.f), "%s", aim_state);
+        ImGui::TextDisabled("trigger");
+        ImGui::SameLine(62.f);
+        ImGui::TextColored(trig_good ? ImVec4(0.35f, 1.f, 0.45f, 1.f) : ImVec4(0.6f, 0.6f, 0.6f, 1.f), "%s", trig_state);
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // ---- content ----
+    ImGui::BeginChild("##sasa_main", ImVec2(0, -26), false);
     switch (tab)
     {
     case 0:
     {
-        ImGui::Text("Aimbot");
+        menu_detail::section("Aimbot");
         ImGui::Checkbox("Enable aimbot", &settings::aimbot::enabled);
         ImGui::Checkbox("Hold-to-aim (else always-on)", &settings::aimbot::require_key);
         key_bind("Aim key", &settings::aimbot::aim_key);
@@ -415,8 +532,7 @@ void render_t::render_menu()
         if (settings::aimbot::sticky_target)
             ImGui::SliderFloat("Stick radius px", &settings::aimbot::max_stick_distance, 20.f, 500.f, "%.0f");
 
-        ImGui::Separator();
-        ImGui::Text("FOV");
+        menu_detail::section("FOV");
         ImGui::SliderFloat("FOV size", &settings::aimbot::fov, 10.f, 1000.f, "%.0f");
         ImGui::Checkbox("Draw FOV", &settings::aimbot::draw_fov);
         ImGui::ColorEdit4("FOV colour", settings::aimbot::fov_colour, ImGuiColorEditFlags_NoInputs);
@@ -424,8 +540,7 @@ void render_t::render_menu()
         if (settings::aimbot::fov_filled)
             ImGui::SliderFloat("Fill alpha", &settings::aimbot::fov_fill_alpha, 0.f, 0.5f, "%.2f");
 
-        ImGui::Separator();
-        ImGui::Text("Smoothing");
+        menu_detail::section("Smoothing");
         ImGui::SliderFloat("Smooth x", &settings::aimbot::smooth_x, 1.f, 100.f, "%.1f");
         ImGui::SliderFloat("Smooth y", &settings::aimbot::smooth_y, 1.f, 100.f, "%.1f");
         static constexpr const char* const curves = "Linear\0Ease-out\0Ease-in-out\0Humanized\0";
@@ -435,21 +550,19 @@ void render_t::render_menu()
         ImGui::SliderFloat("Deadzone px", &settings::aimbot::deadzone, 0.f, 20.f, "%.1f");
         ImGui::SliderFloat("Headshot %", &settings::aimbot::headshot_chance, 0.f, 100.f, "%.0f%%");
 
-        ImGui::Separator();
+        menu_detail::section("Assists");
         ImGui::Checkbox("Prediction", &settings::aimbot::prediction);
         if (settings::aimbot::prediction)
             ImGui::SliderFloat("Lead", &settings::aimbot::prediction_amount, 0.f, 0.5f, "%.3f");
         ImGui::Checkbox("Visible only", &settings::aimbot::visibility_only);
 
-        ImGui::Separator();
-        ImGui::Text("Camera aimbot");
+        menu_detail::section("Camera aimbot");
         ImGui::Checkbox("Enable camera aimbot", &settings::aimbot::camera::enabled);
         ImGui::Checkbox("Camera smoothing", &settings::aimbot::camera::smoothing_enabled);
         if (settings::aimbot::camera::smoothing_enabled)
             ImGui::SliderFloat("Camera smooth", &settings::aimbot::camera::smoothing_value, 0.1f, 50.f, "%.1f");
 
-        ImGui::Separator();
-        ImGui::Text("Checks");
+        menu_detail::section("Checks");
         ImGui::Checkbox("Team check##aim", &settings::aimbot::teamcheck);
         ImGui::Checkbox("Dead check##aim", &settings::aimbot::deadcheck);
         ImGui::Checkbox("Wall check##aim", &settings::aimbot::wallcheck);
@@ -457,7 +570,7 @@ void render_t::render_menu()
     }
     case 1:
     {
-        ImGui::Text("ESP");
+        menu_detail::section("Box");
         ImGui::Checkbox("Draw box", &settings::visuals::box);
         if (settings::visuals::box) {
             static constexpr const char* const styles = "Full\0Corner\0";
@@ -469,48 +582,43 @@ void render_t::render_menu()
         ImGui::ColorEdit4("Box colour", settings::visuals::colour, ImGuiColorEditFlags_NoInputs);
         ImGui::Checkbox("Team colour override", &settings::visuals::team_colour_override);
 
+        menu_detail::section("Text");
         ImGui::Checkbox("Username", &settings::visuals::username);
         ImGui::ColorEdit4("Username colour", settings::visuals::username_colour, ImGuiColorEditFlags_NoInputs);
-
         ImGui::Checkbox("Distance", &settings::visuals::distance);
         ImGui::ColorEdit4("Distance colour", settings::visuals::distance_colour, ImGuiColorEditFlags_NoInputs);
-
         ImGui::Checkbox("Healthbar", &settings::visuals::healthbar);
         ImGui::ColorEdit4("Healthbar colour", settings::visuals::healthbar_colour, ImGuiColorEditFlags_NoInputs);
         ImGui::Checkbox("Health text", &settings::visuals::health_text);
 
-        ImGui::Separator();
+        menu_detail::section("Lines & shapes");
         ImGui::Checkbox("Skeleton", &settings::visuals::skeleton);
         ImGui::ColorEdit4("Skeleton colour", settings::visuals::skeleton_colour, ImGuiColorEditFlags_NoInputs);
-
         ImGui::Checkbox("Snapline", &settings::visuals::snapline);
         if (settings::visuals::snapline) {
             static constexpr const char* const origins = "Bottom\0Top\0Center\0Crosshair\0";
             ImGui::Combo("Origin", &settings::visuals::snapline_origin, origins);
             ImGui::ColorEdit4("Snapline colour", settings::visuals::snapline_colour, ImGuiColorEditFlags_NoInputs);
         }
-
         ImGui::Checkbox("Head dot", &settings::visuals::head_dot);
         if (settings::visuals::head_dot) {
             ImGui::ColorEdit4("Dot colour", settings::visuals::head_dot_colour, ImGuiColorEditFlags_NoInputs);
             ImGui::SliderFloat("Dot size", &settings::visuals::head_dot_size, 1.f, 12.f, "%.1f");
         }
 
-        ImGui::Separator();
+        menu_detail::section("Indicators");
         ImGui::Checkbox("Offscreen arrows", &settings::visuals::offscreen_arrows);
         if (settings::visuals::offscreen_arrows) {
             ImGui::ColorEdit4("Arrow colour", settings::visuals::arrow_colour, ImGuiColorEditFlags_NoInputs);
             ImGui::SliderFloat("Arrow size", &settings::visuals::arrow_size, 6.f, 30.f, "%.0f");
             ImGui::SliderFloat("Arrow distance", &settings::visuals::arrow_distance, 40.f, 400.f, "%.0f");
         }
-
         ImGui::Checkbox("Crosshair", &settings::visuals::crosshair);
         if (settings::visuals::crosshair) {
             ImGui::ColorEdit4("Crosshair colour", settings::visuals::crosshair_colour, ImGuiColorEditFlags_NoInputs);
             ImGui::SliderFloat("Crosshair size", &settings::visuals::crosshair_size, 2.f, 30.f, "%.0f");
             ImGui::SliderFloat("Crosshair gap", &settings::visuals::crosshair_gap, 0.f, 20.f, "%.0f");
         }
-
         ImGui::Checkbox("Hitmarker", &settings::visuals::hitmarker);
         if (settings::visuals::hitmarker) {
             ImGui::ColorEdit4("Hitmarker colour", settings::visuals::hitmarker_colour, ImGuiColorEditFlags_NoInputs);
@@ -518,7 +626,7 @@ void render_t::render_menu()
             ImGui::SliderFloat("Hitmarker time", &settings::visuals::hitmarker_time, 0.1f, 2.f, "%.1fs");
         }
 
-        ImGui::Separator();
+        menu_detail::section("Radar");
         ImGui::Checkbox("Radar", &settings::visuals::radar);
         if (settings::visuals::radar) {
             ImGui::SliderFloat("Radar size", &settings::visuals::radar_size, 80.f, 400.f, "%.0f");
@@ -527,14 +635,12 @@ void render_t::render_menu()
             ImGui::ColorEdit4("Radar bg", settings::visuals::radar_bg, ImGuiColorEditFlags_NoInputs);
         }
 
-        ImGui::Separator();
-        ImGui::Text("Checks");
+        menu_detail::section("Checks");
         ImGui::Checkbox("Team check##vis", &settings::visuals::teamcheck);
         ImGui::Checkbox("Dead check##vis", &settings::visuals::deadcheck);
         ImGui::Checkbox("Wall dim##vis", &settings::visuals::wallcheck);
 
-        ImGui::Separator();
-        ImGui::Text("Misc");
+        menu_detail::section("Misc");
         ImGui::Checkbox("Streamproof", &settings::visuals::streamproof);
         ImGui::Checkbox("Debug wallcheck", &settings::visuals::debug_wallcheck);
         ImGui::SliderFloat("Debug max length", &settings::visuals::debug_wallcheck_max_length, 25.f, 1000.f, "%.0f");
@@ -542,7 +648,7 @@ void render_t::render_menu()
     }
     case 2:
     {
-        ImGui::Text("Triggerbot");
+        menu_detail::section("Triggerbot");
         ImGui::Checkbox("Enable", &settings::triggerbot::enabled);
         ImGui::Checkbox("Hold-to-fire", &settings::triggerbot::require_key);
         key_bind("Trigger key", &settings::triggerbot::key);
@@ -552,20 +658,21 @@ void render_t::render_menu()
         ImGui::Checkbox("Dead check##trig", &settings::triggerbot::deadcheck);
         ImGui::Checkbox("Wall check##trig", &settings::triggerbot::wallcheck);
         ImGui::Separator();
-        ImGui::TextWrapped("Aim at a player so their head/torso is inside the radius, then hold the trigger key. Untick Hold-to-fire to shoot whenever anything crosses the crosshair.");
+        ImGui::Text("State: %s", trig_state);
+        ImGui::TextWrapped("Aim so a head/torso is inside the radius, then hold the trigger key. Untick Hold-to-fire to shoot whenever anything crosses the crosshair. If it never fires, raise Radius and untick Wall check first.");
         break;
     }
     case 3:
     {
-        ImGui::Text("Legit / Movement");
+        menu_detail::section("Legit / Movement");
         ImGui::Checkbox("Enable", &settings::legit::enabled);
         ImGui::SliderFloat("Walkspeed", &settings::legit::walkspeed, 8.f, 200.f, "%.0f");
         ImGui::SliderFloat("Jump power", &settings::legit::jumppower, 10.f, 300.f, "%.0f");
         ImGui::SliderFloat("Hip height", &settings::legit::hipheight, 0.f, 20.f, "%.1f");
         ImGui::Checkbox("Apply continuous", &settings::legit::apply_continuous);
-        if (ImGui::Button("Apply once")) legit::apply_once();
+        if (ImGui::Button("Apply once", ImVec2(-FLT_MIN, 0))) legit::apply_once();
 
-        ImGui::Separator();
+        menu_detail::section("Fly");
         ImGui::Checkbox("Fly (hold key + WASD)", &settings::legit::fly_enabled);
         key_bind("Fly key", &settings::legit::fly_key);
         ImGui::SliderFloat("Fly speed", &settings::legit::fly_speed, 10.f, 300.f, "%.0f");
@@ -574,28 +681,61 @@ void render_t::render_menu()
     }
     case 4:
     {
-        ImGui::Text("SASA Config");
+        menu_detail::section("Menu");
         ImGui::ColorEdit4("Accent", settings::menu_accent, ImGuiColorEditFlags_NoInputs);
         key_bind("Menu key", &settings::menu_key);
         ImGui::Checkbox("Show FPS", &settings::show_fps);
         ImGui::Checkbox("Show players", &settings::show_entity_count);
         ImGui::SliderFloat("FPS limit (0=off)", &settings::overlay_fps_limit, 0.f, 240.f, "%.0f");
 
-        ImGui::Separator();
+        menu_detail::section("Config file");
         ImGui::InputText("Name", settings::config::name, sizeof(settings::config::name));
-        if (ImGui::Button("Save")) config::save(settings::config::name);
+        if (ImGui::Button("Save", ImVec2(120, 0))) config::save(settings::config::name);
         ImGui::SameLine();
-        if (ImGui::Button("Load")) config::load(settings::config::name);
+        if (ImGui::Button("Load", ImVec2(120, 0))) config::load(settings::config::name);
         if (!settings::config::last_status.empty())
             ImGui::TextWrapped("%s", settings::config::last_status.c_str());
+
+        menu_detail::section("Saved on disk");
+        try
+        {
+            int shown = 0;
+            for (auto& e : std::filesystem::directory_iterator("."))
+            {
+                if (shown >= 10) break;
+                if (!e.is_regular_file()) continue;
+                std::string fn = e.path().filename().string();
+                if (fn.rfind("SASA_", 0) != 0 || fn.size() < 11) continue;
+                if (fn.compare(fn.size() - 5, 5, ".json") != 0) continue;
+                std::string stem = fn.substr(5, fn.size() - 10);
+                if (stem == "offsets") continue;
+                ImGui::TextUnformatted(stem.c_str());
+                ImGui::SameLine(220.f);
+                ImGui::PushID(stem.c_str());
+                if (ImGui::SmallButton("Load"))
+                {
+                    std::snprintf(settings::config::name, sizeof(settings::config::name), "%s", stem.c_str());
+                    config::load(stem.c_str());
+                }
+                ImGui::PopID();
+                shown++;
+            }
+            if (shown == 0) ImGui::TextDisabled("no saved configs yet");
+        }
+        catch (...) { ImGui::TextDisabled("config folder unreadable"); }
+
+        menu_detail::section("Session");
+        ImGui::TextWrapped("offsets: %s", offsets_auto::status().c_str());
+        if (ImGui::Button("Exit SASA", ImVec2(-FLT_MIN, 0))) std::exit(0);
         break;
     }
     default:
         break;
     }
+    ImGui::EndChild();
 
     ImGui::Separator();
-    ImGui::TextDisabled("HOME toggles menu | click a key box, wait, then press the new key (ESC cancels)");
+    ImGui::TextDisabled("click a key box, then press the new key — ESC cancels, left-click never binds");
 
     ImGui::End();
 }

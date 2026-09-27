@@ -122,6 +122,8 @@ std::int32_t main()
 		}
 	}
 
+	render->sync_interaction(); // menu starts open: capture mouse from frame one
+
 	while (true)
 	{
 		render->start_render();

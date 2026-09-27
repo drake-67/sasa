@@ -26,8 +26,10 @@ public:
 	render_t();
 	~render_t();
 
-	bool running = false;
+	bool running = true; // menu opens on launch so first run is never a black box
 	int detail_fps = 0;
+
+	void sync_interaction(); // click-through when closed, mouse capture when open
 
 	void start_render();
 	void render_menu();
