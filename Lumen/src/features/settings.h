@@ -10,7 +10,7 @@ namespace settings
 	inline int menu_key = VK_HOME;
 	inline bool show_fps = true;
 	inline bool show_entity_count = true;
-	inline float overlay_fps_limit = 0.f; // 0 = unlimited
+	inline float overlay_fps_limit = 60.f; // 0 = unlimited (uncapped costs CPU)
 
 	namespace aimbot
 	{
@@ -59,7 +59,7 @@ namespace settings
 		inline int key = VK_XBUTTON1;
 		inline bool require_key = true;
 		inline float delay_ms = 80.f;
-		inline float fov_radius = 8.f; // px around crosshair
+		inline float fov_radius = 12.f; // px around crosshair
 		inline bool teamcheck = true;
 		inline bool deadcheck = true;
 		inline bool wallcheck = true;

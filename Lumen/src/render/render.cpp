@@ -315,12 +315,16 @@ void render_t::start_render()
 
         if (running)
         {
-            SetWindowLong(detail->window, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT);
+            // menu open: capture mouse (no TRANSPARENT) so widgets are clickable
+            SetWindowLong(detail->window, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED);
         }
         else
         {
+            // menu closed: click-through overlay
             SetWindowLong(detail->window, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_LAYERED);
         }
+        SetWindowPos(detail->window, nullptr, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
 
     // fps limiter
@@ -374,7 +378,7 @@ void render_t::end_render()
 
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-    detail->swap_chain->Present(0, 0);
+    detail->swap_chain->Present(1, 0); // vsync: caps overlay to refresh rate, saves CPU/GPU
 }
 
 void render_t::render_menu()
@@ -547,6 +551,8 @@ void render_t::render_menu()
         ImGui::Checkbox("Team check##trig", &settings::triggerbot::teamcheck);
         ImGui::Checkbox("Dead check##trig", &settings::triggerbot::deadcheck);
         ImGui::Checkbox("Wall check##trig", &settings::triggerbot::wallcheck);
+        ImGui::Separator();
+        ImGui::TextWrapped("Aim at a player so their head/torso is inside the radius, then hold the trigger key. Untick Hold-to-fire to shoot whenever anything crosses the crosshair.");
         break;
     }
     case 3:
@@ -587,6 +593,9 @@ void render_t::render_menu()
     default:
         break;
     }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("HOME toggles menu | click a key box, wait, then press the new key (ESC cancels)");
 
     ImGui::End();
 }

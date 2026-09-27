@@ -279,7 +279,7 @@ void esp::run()
 			if (!pair.second.address)
 				continue;
 
-			if (pair.second.get_name() == "HumanoidRootPart")
+			if (pair.first == "HumanoidRootPart")
 				continue;
 
 			rbx::c_primitive prim = pair.second.get_primitive();

@@ -127,11 +127,11 @@ static bool get_target_point_for_entity
 	switch (settings::aimbot::target_part)
 	{
 	case 1:
-		if (force_body) { try_part("Torso"); if (!found) try_part("HumanoidRootPart"); }
+		if (force_body) { try_part("Torso"); try_part("UpperTorso"); if (!found) try_part("HumanoidRootPart"); }
 		else try_part("Head");
 		break;
 	case 2:
-		try_part("Torso");
+		try_part("Torso"); try_part("UpperTorso"); try_part("LowerTorso");
 		break;
 	case 3:
 		try_part("HumanoidRootPart");
@@ -139,11 +139,11 @@ static bool get_target_point_for_entity
 	default: // closest
 	{
 		if (force_body) {
-			const char* parts[] = { "Torso", "HumanoidRootPart", "Head", "Left Leg", "Left Arm", "Right Arm", "Right Leg" };
+			const char* parts[] = { "Torso", "UpperTorso", "LowerTorso", "HumanoidRootPart", "Head", "Left Leg", "Left Arm", "Right Arm", "Right Leg" };
 			for (const char* name : parts) try_part(name);
 		}
 		else {
-			const char* parts[] = { "Head", "Torso", "HumanoidRootPart", "Left Leg", "Left Arm", "Right Arm", "Right Leg" };
+			const char* parts[] = { "Head", "Torso", "UpperTorso", "LowerTorso", "HumanoidRootPart", "Left Leg", "Left Arm", "Right Arm", "Right Leg" };
 			for (const char* name : parts) try_part(name);
 		}
 		break;
@@ -362,9 +362,9 @@ void aimbot::run()
 			}
 		}
 
-		if (!settings::aimbot::enabled)
+		if (!settings::aimbot::enabled && !settings::aimbot::camera::enabled)
 		{
-			Sleep(1);
+			Sleep(10);
 			continue;
 		}
 
@@ -372,7 +372,7 @@ void aimbot::run()
 		if (!key_down)
 		{
 			settings::aimbot::locked_target = 0;
-			Sleep(1);
+			Sleep(5);
 			continue;
 		}
 
@@ -382,14 +382,14 @@ void aimbot::run()
 		cache::entity_t player = get_best_player(view, dims);
 		if (player.instance.address == 0)
 		{
-			Sleep(1);
+			Sleep(5);
 			continue;
 		}
 
 		float world_distance = get_world_distance_to_entity(player);
 		if (world_distance == FLT_MAX)
 		{
-			Sleep(1);
+			Sleep(5);
 			continue;
 		}
 
